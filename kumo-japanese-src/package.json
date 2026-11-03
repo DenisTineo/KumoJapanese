@@ -1,0 +1,67 @@
+{
+  "name": "kumo-japanese",
+  "version": "2.7.0",
+  "description": "A focused, interactive Japanese learning journey from JLPT N5 to N1.",
+  "main": "main.cjs",
+  "author": "Kumo Japanese",
+  "license": "SEE LICENSE IN LICENSES.md",
+  "private": true,
+  "scripts": {
+    "postinstall": "install-electron",
+    "start": "electron .",
+    "dist": "electron-builder --win nsis --x64 --publish never"
+  },
+  "devDependencies": {
+    "electron": "45.1.0",
+    "electron-builder": "26.18.0"
+  },
+  "build": {
+    "appId": "com.kumojapanese.desktop",
+    "productName": "Kumo Japanese",
+    "artifactName": "Kumo Japanese Setup ${version}.${ext}",
+    "asar": true,
+    "asarUnpack": [
+      "assets/audio/**/*"
+    ],
+    "compression": "normal",
+    "directories": {
+      "buildResources": "assets",
+      "output": "release"
+    },
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "src/**/*",
+      "assets/**/*",
+      "licenses/**/*",
+      "LICENSES.md",
+      "THIRD_PARTY_NOTICES.md",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "guid": "cc26c2f4-b390-5edc-81f9-c8b93d5536e7",
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Kumo Japanese",
+      "deleteAppDataOnUninstall": false,
+      "runAfterFinish": true,
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico"
+    }
+  }
+}

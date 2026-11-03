@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; media-src 'self' file: blob:; connect-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#090b12">
+  <title>Kumo Japanese</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="corpus.js" defer></script>
+  <script src="strokes.js" defer></script>
+  <script src="particles.js" defer></script>
+  <script src="data.js" defer></script>
+  <script src="audio-manifest.js" defer></script>
+  <script src="conjugation.js" defer></script>
+  <script src="japanese-tools.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <svg class="svg-sprite" aria-hidden="true">
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="m3 11 9-8 9 8v9a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/></symbol>
+    <symbol id="i-review" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.34 5.66M20 4v7h-7"/><path d="m9 12 2 2 4-4"/></symbol>
+    <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z"/><path d="M4 5.5v14M8 7h8"/></symbol>
+    <symbol id="i-headphones" viewBox="0 0 24 24"><path d="M4 14v-2a8 8 0 0 1 16 0v2"/><path d="M18 19h1a2 2 0 0 0 2-2v-3h-4v4a1 1 0 0 0 1 1ZM6 19H5a2 2 0 0 1-2-2v-3h4v4a1 1 0 0 1-1 1Z"/></symbol>
+    <symbol id="i-pen" viewBox="0 0 24 24"><path d="m12 20 9-9-4-4-9 9-1 5zM14 6l4 4M3 21h6"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></symbol>
+    <symbol id="i-map" viewBox="0 0 24 24"><path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3zM9 3v15M15 6v15"/></symbol>
+    <symbol id="i-volume" viewBox="0 0 24 24"><path d="M11 5 6 9H2v6h4l5 4zM15 9a5 5 0 0 1 0 6M18 6a9 9 0 0 1 0 12"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m4 12 5 5L20 6"/></symbol>
+    <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 2 3 6 7 .9-5 4.8 1.3 6.8L12 17.3l-6.3 3.2L7 13.7 2 8.9 9 8z"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="m7 4 13 8-13 8z"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M5 5l14 14M19 5 5 19"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3V2.8h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v13M7 11l5 5 5-5M4 21h16"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 17V4M7 9l5-5 5 5M4 21h16"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v6l4 2"/></symbol>
+  </svg>
+
+  <div class="window-dragbar" aria-hidden="true">
+    <div class="dragbar-brand"><span class="mini-logo">雲</span><span>Kumo Japanese</span></div>
+  </div>
+
+  <div class="app-shell is-loading" id="appShell">
+    <aside class="sidebar" aria-label="Primary navigation">
+      <div class="brand-block">
+        <div class="brand-logo"><span>雲</span></div>
+        <div><strong>KUMO</strong><small>JAPANESE</small></div>
+      </div>
+      <nav class="main-nav" id="mainNav">
+        <button class="nav-item active" data-view="learn"><svg><use href="#i-home"/></svg><span>Learn</span></button>
+        <button class="nav-item" data-view="review"><svg><use href="#i-review"/></svg><span>Practice</span><b id="reviewBadge">0</b></button>
+        <div class="nav-label">CORE SKILLS</div>
+        <button class="nav-item kana-nav" data-view="kana"><span class="nav-glyph">あ</span><span>Kana</span></button>
+        <button class="nav-item" data-view="vocabulary"><svg><use href="#i-book"/></svg><span>Vocabulary</span></button>
+        <button class="nav-item grammar-nav" data-view="grammar"><span class="nav-glyph">文</span><span>Grammar</span></button>
+        <button class="nav-item sentence-nav" data-view="sentence-builder"><span class="nav-glyph">組</span><span>Sentence builder</span></button>
+        <button class="nav-item kanji-nav" data-view="kanji"><span class="nav-glyph">漢</span><span>Kanji</span></button>
+        <div class="nav-label">EXAM & IMMERSION</div>
+        <button class="nav-item" data-view="exam"><svg><use href="#i-grid"/></svg><span>JLPT mock test</span></button>
+        <button class="nav-item" data-view="immersion"><svg><use href="#i-headphones"/></svg><span>Listen & read</span></button>
+        <button class="nav-item" data-view="writing"><svg><use href="#i-pen"/></svg><span>Writing practice</span></button>
+        <div class="nav-label">INSIGHTS</div>
+        <button class="nav-item" data-view="progress"><svg><use href="#i-chart"/></svg><span>Progress</span></button>
+        <button class="nav-item" data-view="guide"><svg><use href="#i-map"/></svg><span>JLPT guide</span></button>
+      </nav>
+      <button class="profile-card" id="settingsButton" data-action="settings">
+        <span class="avatar">学</span>
+        <span><strong>Learner</strong><small>Local profile</small></span>
+        <svg><use href="#i-settings"/></svg>
+      </button>
+    </aside>
+
+    <section class="workspace">
+      <header class="app-header">
+        <button class="mobile-menu" data-action="toggle-sidebar" aria-label="Open navigation"><span></span><span></span><span></span></button>
+        <div class="level-switcher" id="headerLevels" aria-label="JLPT level"></div>
+        <div class="header-context" id="headerContext"></div>
+      </header>
+      <div class="content-grid">
+        <main id="mainContent" tabindex="-1">
+          <div class="loading-state"><div class="loading-logo">雲</div><p>Preparing your journey…</p></div>
+        </main>
+        <aside class="right-rail" id="rightRail" aria-label="Daily progress"></aside>
+      </div>
+    </section>
+  </div>
+
+  <nav class="mobile-nav" aria-label="Mobile navigation">
+    <button data-view="learn" class="active"><svg><use href="#i-home"/></svg><span>Learn</span></button>
+    <button data-view="review"><svg><use href="#i-review"/></svg><span>Practice</span></button>
+    <button data-view="kana"><span class="mobile-glyph">あ</span><span>Kana</span></button>
+    <button data-view="exam"><svg><use href="#i-grid"/></svg><span>Mock test</span></button>
+    <button data-view="progress"><svg><use href="#i-chart"/></svg><span>Progress</span></button>
+  </nav>
+
+  <div class="modal-layer hidden" id="modalLayer" aria-live="polite"></div>
+  <div class="toast-region" id="toastRegion" aria-live="polite"></div>
+</body>
+</html>

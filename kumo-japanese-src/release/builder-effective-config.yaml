@@ -1,0 +1,40 @@
+directories:
+  output: release
+  buildResources: assets
+appId: com.kumojapanese.desktop
+productName: Kumo Japanese
+artifactName: Kumo Japanese Setup ${version}.${ext}
+asar: true
+asarUnpack:
+  - assets/audio/**/*
+compression: normal
+files:
+  - filter:
+      - main.cjs
+      - preload.cjs
+      - src/**/*
+      - assets/**/*
+      - licenses/**/*
+      - LICENSES.md
+      - THIRD_PARTY_NOTICES.md
+      - package.json
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: assets/icon.ico
+nsis:
+  guid: cc26c2f4-b390-5edc-81f9-c8b93d5536e7
+  oneClick: false
+  perMachine: false
+  allowElevation: true
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Kumo Japanese
+  deleteAppDataOnUninstall: false
+  runAfterFinish: true
+  installerIcon: assets/icon.ico
+  uninstallerIcon: assets/icon.ico
+electronVersion: 45.1.0
