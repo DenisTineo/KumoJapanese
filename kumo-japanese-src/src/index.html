@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; media-src 'self' file: blob:; connect-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="theme-color" content="#090b12">
+  <meta name="theme-color" content="#f7f7f5">
   <title>Kumo Japanese</title>
   <link rel="stylesheet" href="styles.css">
   <script src="corpus.js" defer></script>
@@ -14,6 +14,7 @@
   <script src="audio-manifest.js" defer></script>
   <script src="conjugation.js" defer></script>
   <script src="japanese-tools.js" defer></script>
+  <script src="mock-exam-bank.js" defer></script>
   <script src="app.js" defer></script>
 </head>
 <body>
@@ -54,11 +55,31 @@
         <button class="nav-item active" data-view="learn"><svg><use href="#i-home"/></svg><span>Learn</span></button>
         <button class="nav-item" data-view="review"><svg><use href="#i-review"/></svg><span>Practice</span><b id="reviewBadge">0</b></button>
         <div class="nav-label">CORE SKILLS</div>
-        <button class="nav-item kana-nav" data-view="kana"><span class="nav-glyph">あ</span><span>Kana</span></button>
-        <button class="nav-item" data-view="vocabulary"><svg><use href="#i-book"/></svg><span>Vocabulary</span></button>
-        <button class="nav-item grammar-nav" data-view="grammar"><span class="nav-glyph">文</span><span>Grammar</span></button>
-        <button class="nav-item sentence-nav" data-view="sentence-builder"><span class="nav-glyph">組</span><span>Sentence builder</span></button>
-        <button class="nav-item kanji-nav" data-view="kanji"><span class="nav-glyph">漢</span><span>Kanji</span></button>
+        <button class="nav-item core-skill-row kana-nav" data-view="kana">
+          <span class="nav-glyph core-skill-leading">あ</span>
+          <span class="core-skill-copy"><strong>Kana</strong><small>Hiragana, katakana & sound</small></span>
+          <svg class="core-skill-chevron"><use href="#i-chevron"/></svg>
+        </button>
+        <button class="nav-item core-skill-row" data-view="vocabulary">
+          <svg class="core-skill-leading"><use href="#i-book"/></svg>
+          <span class="core-skill-copy"><strong>Vocabulary</strong><small>Words, readings & examples</small></span>
+          <svg class="core-skill-chevron"><use href="#i-chevron"/></svg>
+        </button>
+        <button class="nav-item core-skill-row grammar-nav" data-view="grammar">
+          <span class="nav-glyph core-skill-leading">文</span>
+          <span class="core-skill-copy"><strong>Grammar</strong><small>Patterns, forms & nuance</small></span>
+          <svg class="core-skill-chevron"><use href="#i-chevron"/></svg>
+        </button>
+        <button class="nav-item core-skill-row sentence-nav" data-view="sentence-builder">
+          <span class="nav-glyph core-skill-leading">組</span>
+          <span class="core-skill-copy"><strong>Sentence builder</strong><small>Translate, shuffle & rebuild</small></span>
+          <svg class="core-skill-chevron"><use href="#i-chevron"/></svg>
+        </button>
+        <button class="nav-item core-skill-row kanji-nav" data-view="kanji">
+          <span class="nav-glyph core-skill-leading">漢</span>
+          <span class="core-skill-copy"><strong>Kanji</strong><small>Meanings, readings & compounds</small></span>
+          <svg class="core-skill-chevron"><use href="#i-chevron"/></svg>
+        </button>
         <div class="nav-label">EXAM & IMMERSION</div>
         <button class="nav-item" data-view="exam"><svg><use href="#i-grid"/></svg><span>JLPT mock test</span></button>
         <button class="nav-item" data-view="immersion"><svg><use href="#i-headphones"/></svg><span>Listen & read</span></button>

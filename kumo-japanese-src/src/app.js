@@ -4,6 +4,7 @@
   const DATA = window.KUMO_DATA;
   const CONJUGATOR = window.KUMO_CONJUGATOR;
   const JAPANESE = window.KUMO_JAPANESE;
+  const MOCK_EXAMS = window.KUMO_MOCK_EXAMS;
   const desktop = window.kumoDesktop;
   const levelColors = Object.fromEntries(DATA.levelOrder.map((level) => [level, DATA.levels[level].color]));
   const exerciseCache = new Map();
@@ -12,7 +13,7 @@
   const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
   const DEFAULT_STATE = {
-    schemaVersion: 7,
+    schemaVersion: 8,
     onboarded: false,
     selectedLevel: 'N5',
     activeView: 'learn',
@@ -166,6 +167,72 @@
     return JAPANESE?.cleanGrammarPattern?.(pattern) || String(pattern || '').replace(/[（(][^（）()]*[A-Za-z][^（）()]*[）)]/gu, '').trim();
   }
 
+  const EXAM_SECTION_NAMES = ['Language knowledge', 'Reading', 'Listening'];
+
+  function safeRecordText(value, limit = 500) {
+    return String(value ?? '').slice(0, limit);
+  }
+
+  function normalizeMockResult(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const level = DATA.levelOrder.includes(value.level) ? value.level : null;
+    const mode = value.mode === 'full' || value.mode === 'mini' ? value.mode : null;
+    const timestamp = Date.parse(value.date);
+    if (!level || !mode || !Number.isFinite(timestamp) || !value.sections || typeof value.sections !== 'object') return null;
+    const expectedTotals = mode === 'full'
+      ? { 'Language knowledge': 12, Reading: 4, Listening: 4 }
+      : { 'Language knowledge': 6, Reading: 2, Listening: 2 };
+    const sections = {};
+    let total = 0;
+    let correct = 0;
+    let skipped = 0;
+    for (const name of EXAM_SECTION_NAMES) {
+      const score = value.sections[name];
+      const sectionTotal = Number(score?.total);
+      const sectionCorrect = Number(score?.correct);
+      const sectionSkipped = Number(score?.skipped ?? 0);
+      if (!Number.isInteger(sectionTotal) || sectionTotal !== expectedTotals[name]
+        || !Number.isInteger(sectionCorrect) || sectionCorrect < 0 || sectionCorrect > sectionTotal
+        || !Number.isInteger(sectionSkipped) || sectionSkipped < 0 || sectionSkipped > sectionTotal
+        || (name !== 'Listening' && sectionSkipped !== 0)
+        || sectionCorrect + sectionSkipped > sectionTotal) return null;
+      sections[name] = { correct: sectionCorrect, total: sectionTotal, skipped: sectionSkipped };
+      total += sectionTotal;
+      correct += sectionCorrect;
+      skipped += sectionSkipped;
+    }
+    const missed = (Array.isArray(value.missed) ? value.missed : []).slice(0, 200).map((entry) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+      const section = EXAM_SECTION_NAMES.includes(entry.section) ? entry.section : 'Language knowledge';
+      const sourceUrl = /^https:\/\/[^\s]+$/i.test(String(entry.sourceUrl || '')) ? String(entry.sourceUrl) : '';
+      return {
+        prompt: safeRecordText(entry.prompt),
+        answer: safeRecordText(entry.answer),
+        given: safeRecordText(entry.given),
+        section,
+        sourceName: safeRecordText(entry.sourceName, 120),
+        sourceRef: safeRecordText(entry.sourceRef, 160),
+        sourceUrl
+      };
+    }).filter(Boolean);
+    if (EXAM_SECTION_NAMES.some((name) => missed.filter((entry) => entry.section === name).length > sections[name].total - sections[name].skipped - sections[name].correct)) return null;
+    return {
+      id: safeRecordText(value.id || `mock-${timestamp}`, 120),
+      date: new Date(timestamp).toISOString(),
+      level,
+      mode,
+      total,
+      attempted: total - skipped,
+      skipped,
+      correct,
+      percent: total > skipped ? Math.round((correct / (total - skipped)) * 100) : null,
+      sections,
+      timeUsed: clamp(Math.trunc(Number(value.timeUsed) || 0), 0, 86400),
+      timedOut: Boolean(value.timedOut),
+      missed
+    };
+  }
+
   function normalizeState(saved) {
     if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return structuredClone(DEFAULT_STATE);
     const merged = {
@@ -182,6 +249,7 @@
     ['completedLessons', 'completedReadings', 'knownWords', 'favoriteWords', 'masteredKana', 'practicedWriting', 'practicedWords', 'speakingPracticed', 'readingSentencesPracticed', 'particleSentencesPracticed', 'conjugationsPracticed', 'mistakes', 'mockResults'].forEach((key) => {
       if (!Array.isArray(merged[key])) merged[key] = [];
     });
+    merged.mockResults = merged.mockResults.map(normalizeMockResult).filter(Boolean).slice(0, 25);
     const vocabularyAliases = DATA.legacyAliases?.vocabulary || {};
     merged.knownWords = unique(merged.knownWords.map((id) => vocabularyAliases[id] || id));
     merged.favoriteWords = unique(merged.favoriteWords.map((id) => vocabularyAliases[id] || id));
@@ -199,7 +267,7 @@
     delete merged.activity;
     delete merged.daily.xp;
     delete merged.daily.reviews;
-    merged.schemaVersion = 7;
+    merged.schemaVersion = 8;
     ensureDaily(merged);
     return merged;
   }
@@ -332,7 +400,10 @@
     updateHeaderContext();
     $('#reviewBadge').textContent = String(Math.min(99, state.mistakes.length));
     $$('.nav-item[data-view], .mobile-nav [data-view]').forEach((button) => {
-      button.classList.toggle('active', button.dataset.view === state.activeView);
+      const active = button.dataset.view === state.activeView;
+      button.classList.toggle('active', active);
+      if (active) button.setAttribute('aria-current', 'page');
+      else button.removeAttribute('aria-current');
     });
   }
 
@@ -694,26 +765,76 @@
     });
   }
 
+  function kanjiNumericLabel(value, prefix = '') {
+    if (value == null || String(value).trim() === '') return '—';
+    const number = Number(value);
+    return Number.isFinite(number) && number > 0 ? `${prefix}${Math.trunc(number)}` : '—';
+  }
+
   function kanjiCollectionMarkup(characters) {
-    const pageSize = 80;
+    const pageSize = 50;
     const totalPages = Math.max(1, Math.ceil(characters.length / pageSize));
     ui.kanjiPage = clamp(ui.kanjiPage, 1, totalPages);
-    const pageCharacters = characters.slice((ui.kanjiPage - 1) * pageSize, ui.kanjiPage * pageSize);
-    let selected = characters.find((entry) => entry.id === ui.selectedKanji);
-    if (!selected || !pageCharacters.includes(selected)) selected = pageCharacters[0] || characters[0];
-    if (selected) ui.selectedKanji = selected.id;
-    if (!selected) return `<div class="empty-state"><div class="empty-icon">漢</div><h3>No kanji found</h3><p>Try a character, reading, radical, or English meaning.</p></div>`;
-    return `<div class="kanji-layout"><section><div class="kanji-grid">${pageCharacters.map((entry) => `<button class="kanji-tile ${entry.id === selected.id ? 'active' : ''}" data-action="select-kanji" data-kanji="${entry.id}"><span class="kanji-strokes">${entry.strokes || '—'}</span><b>${entry.char}</b><small>${escapeHtml(entry.meanings?.[0] || entry.meaning.split(';')[0])}</small></button>`).join('')}</div>${paginationMarkup('kanji', ui.kanjiPage, totalPages, characters.length)}</section><aside class="card kanji-detail"><div class="kanji-detail-top"><div class="kanji-large">${selected.char}</div><div><h2>${escapeHtml(selected.meaning)}</h2><p>${selected.strokes || 'Unknown'} strokes · ${selected.level}</p></div></div><div class="kanji-facts"><span><small>RADICAL</small><b class="jp">${escapeHtml(selected.radical || '—')}</b></span><span><small>GRADE</small><b>${selected.grade || '—'}</b></span><span><small>FREQUENCY</small><b>${selected.frequency ? `#${selected.frequency}` : '—'}</b></span></div><div class="reading-pair"><small>ON</small><strong>${escapeHtml(selected.on)}</strong></div><div class="reading-pair"><small>KUN</small><strong>${escapeHtml(selected.kun)}</strong></div>${selected.nanori?.length ? `<div class="reading-pair"><small>NAMES</small><strong>${escapeHtml(selected.nanori.join('・'))}</strong></div>` : ''}<div class="kanji-words">${selected.words.map(([word, reading, meaning]) => `<div class="kanji-word"><b>${escapeHtml(word)}</b><span>${escapeHtml(reading)}</span><small>${escapeHtml(meaning)}</small></div>`).join('')}</div><div class="kana-actions" style="margin-top:16px"><button class="btn btn-ghost" data-action="speak" data-speech="${escapeHtml(selected.words[0][0])}">${icon('volume')} Hear word</button><button class="btn btn-ghost" data-action="write-kanji" data-char="${selected.char}">${icon('pen')} Write</button></div></aside></div>`;
+    const start = (ui.kanjiPage - 1) * pageSize;
+    const pageCharacters = characters.slice(start, start + pageSize);
+    if (!pageCharacters.length) return `<div class="empty-state"><div class="empty-icon">漢</div><h3>No kanji found</h3><p>Try a character, reading, radical, or English meaning.</p></div>`;
+    const rows = pageCharacters.map((entry, index) => {
+      const meaning = (entry.meanings?.length ? entry.meanings : String(entry.meaning || '').split(';')).slice(0, 4).join(', ');
+      const readings = [entry.on && entry.on !== '—' ? `On: ${entry.on}` : '', entry.kun && entry.kun !== '—' ? `Kun: ${entry.kun}` : ''].filter(Boolean).join(' · ');
+      const wordPreview = (entry.words || []).slice(0, 2).map(([word, reading]) => `${word} ${reading ? `(${reading})` : ''}`.trim()).join(' · ');
+      const strokeCount = kanjiNumericLabel(entry.strokes);
+      return `<button class="kanji-list-row" data-action="open-kanji" data-kanji="${escapeHtml(entry.id)}" aria-label="Open ${escapeHtml(entry.char)}: ${escapeHtml(meaning)}">
+        <span class="kanji-list-index">${String(start + index + 1).padStart(3, '0')}</span>
+        <span class="kanji-list-glyph">${escapeHtml(entry.char)}</span>
+        <span class="kanji-list-copy"><strong>${escapeHtml(meaning || 'Meaning unavailable')}</strong><small class="jp">${escapeHtml(readings || 'Reading unavailable')}</small>${wordPreview ? `<span class="jp">${escapeHtml(wordPreview)}</span>` : ''}</span>
+        <span class="kanji-list-meta"><b>${escapeHtml(strokeCount)}</b><small>strokes</small></span>
+        <span class="kanji-list-open">View ${icon('chevron')}</span>
+      </button>`;
+    }).join('');
+    return `<div class="kanji-list">${rows}</div>${paginationMarkup('kanji', ui.kanjiPage, totalPages, characters.length)}`;
+  }
+
+  function renderKanjiDetailPage(selected) {
+    const levelCharacters = DATA.kanji.filter((entry) => entry.level === state.selectedLevel);
+    const currentIndex = levelCharacters.findIndex((entry) => entry.id === selected.id);
+    const previous = currentIndex > 0 ? levelCharacters[currentIndex - 1] : null;
+    const next = currentIndex >= 0 && currentIndex < levelCharacters.length - 1 ? levelCharacters[currentIndex + 1] : null;
+    const meanings = (selected.meanings?.length ? selected.meanings : String(selected.meaning || '').split(';')).filter(Boolean);
+    const primaryWord = selected.words?.[0];
+    const strokeCount = kanjiNumericLabel(selected.strokes);
+    const grade = kanjiNumericLabel(selected.grade);
+    const frequency = kanjiNumericLabel(selected.frequency, '#');
+    const unicode = selected.char?.codePointAt(0)?.toString(16).toUpperCase().padStart(4, '0') || '—';
+    const words = selected.words?.length ? selected.words.map(([word, reading, meaning]) => `<article class="kanji-vocabulary-row"><strong class="jp">${escapeHtml(word)}</strong><span class="jp">${escapeHtml(reading || '—')}</span><p>${escapeHtml(meaning || 'Meaning unavailable')}</p><button class="word-action" data-action="speak" data-speech="${escapeHtml(word)}" title="Hear ${escapeHtml(word)}">${icon('volume')}</button></article>`).join('') : `<div class="empty-state compact-empty"><p>No example compounds are available for this character.</p></div>`;
+
+    return `<div class="page kanji-entry-page" ${levelStyle()}>
+      <nav class="kanji-breadcrumb" aria-label="Kanji navigation"><button data-action="kanji-index">← ${state.selectedLevel} kanji</button><span>/</span><strong class="jp">${escapeHtml(selected.char)}</strong></nav>
+      <section class="kanji-entry-hero">
+        <div class="kanji-entry-glyph">${escapeHtml(selected.char)}</div>
+        <div class="kanji-entry-summary"><div class="eyebrow">${state.selectedLevel} · KANJIDIC2 ENTRY</div><h1 id="kanjiEntryHeading" tabindex="-1">${escapeHtml(meanings.join(', ') || 'Kanji details')}</h1><p class="jp">${escapeHtml([selected.on, selected.kun].filter((reading) => reading && reading !== '—').join(' · ') || 'No readings available')}</p><div class="meaning-chips">${meanings.map((meaning) => `<span>${escapeHtml(meaning)}</span>`).join('')}</div></div>
+        <div class="kanji-entry-actions">${primaryWord ? `<button class="btn btn-ghost" data-action="speak" data-speech="${escapeHtml(primaryWord[0])}">${icon('volume')} Hear ${escapeHtml(primaryWord[0])}</button>` : ''}<button class="btn btn-primary" data-action="write-kanji" data-char="${escapeHtml(selected.char)}">${icon('pen')} Practice writing</button></div>
+      </section>
+      <div class="kanji-entry-grid">
+        <section class="card kanji-entry-section"><div class="entry-section-head"><span>字</span><div><small>CHARACTER PROFILE</small><h2>At a glance</h2></div></div><div class="kanji-stat-grid"><article><small>STROKES</small><strong>${escapeHtml(strokeCount)}</strong><span>writing movements</span></article><article><small>RADICAL</small><strong class="jp">${escapeHtml(selected.radical || '—')}</strong><span>lookup component</span></article><article><small>SCHOOL GRADE</small><strong>${escapeHtml(grade)}</strong><span>Japanese curriculum</span></article><article><small>FREQUENCY</small><strong>${escapeHtml(frequency)}</strong><span>newspaper rank</span></article><article><small>JLPT</small><strong>${escapeHtml(selected.level)}</strong><span>community alignment</span></article><article><small>UNICODE</small><strong>U+${unicode}</strong><span>character code</span></article></div></section>
+        <section class="card kanji-entry-section"><div class="entry-section-head"><span>読</span><div><small>PRONUNCIATION</small><h2>Readings</h2></div></div><div class="kanji-reading-list"><article><small>音読み · ON</small><strong class="jp">${escapeHtml(selected.on || '—')}</strong><p>Common in compounds and Sino-Japanese vocabulary.</p></article><article><small>訓読み · KUN</small><strong class="jp">${escapeHtml(selected.kun || '—')}</strong><p>Native Japanese readings, often used with okurigana.</p></article>${selected.nanori?.length ? `<article><small>名乗り · NAMES</small><strong class="jp">${escapeHtml(selected.nanori.join('・'))}</strong><p>Readings commonly found in names.</p></article>` : ''}</div></section>
+      </div>
+      <section class="card kanji-entry-section kanji-vocabulary-section"><div class="entry-section-head"><span>語</span><div><small>WORDS IN CONTEXT</small><h2>Example vocabulary</h2><p>See how the character behaves inside complete words.</p></div></div><div class="kanji-vocabulary-list">${words}</div></section>
+      <footer class="kanji-entry-footer"><span>KANJIDIC2 via OpenJLPT · CC BY-SA 4.0</span><button class="btn btn-small btn-ghost" data-action="start-review" data-focus="kanji">Practice ${state.selectedLevel} kanji</button></footer>
+      <nav class="kanji-entry-pager" aria-label="Adjacent kanji"><button class="btn btn-ghost" data-action="open-kanji" data-kanji="${escapeHtml(previous?.id || '')}" ${previous ? '' : 'disabled'}>← ${previous ? escapeHtml(previous.char) : 'Previous'}</button><span>${currentIndex + 1} / ${levelCharacters.length}</span><button class="btn btn-ghost" data-action="open-kanji" data-kanji="${escapeHtml(next?.id || '')}" ${next ? '' : 'disabled'}>${next ? escapeHtml(next.char) : 'Next'} →</button></nav>
+    </div>`;
   }
 
   function renderKanji() {
+    const selected = ui.selectedKanji ? DATA.kanji.find((entry) => entry.id === ui.selectedKanji && entry.level === state.selectedLevel) : null;
+    if (selected) return renderKanjiDetailPage(selected);
+    if (ui.selectedKanji) ui.selectedKanji = null;
     const characters = filteredKanji();
     const levelCount = DATA.corpusMeta?.counts?.kanji?.[state.selectedLevel] || characters.length;
     return `
-      <div class="page" ${levelStyle()}>
-        ${pageHeader('Complete character corpus', `${state.selectedLevel} kanji library`, `Search every JLPT-aligned character by kanji, meaning, reading, radical, or example word.`, `<button class="btn btn-primary" data-action="start-review" data-focus="kanji">${icon('play')} Kanji drill</button>`)}
-        <div class="corpus-banner"><span>KANJIDIC2 ENRICHED</span><strong>${formatNumber(levelCount)} ${state.selectedLevel} kanji</strong><p>${formatNumber(DATA.kanji.length)} characters across N5–N1 · readings, radicals, frequency, and compounds</p></div>
-        <div class="toolbar"><label class="search-box">${icon('search')}<input id="kanjiSearch" value="${escapeHtml(ui.kanjiSearch)}" placeholder="Search character, meaning, reading, or radical…" autocomplete="off"></label><span class="result-count" id="kanjiResultCount">${formatNumber(characters.length)} results</span></div>
+      <div class="page kanji-index-page" ${levelStyle()}>
+        ${pageHeader('Kanji lesson index', `${state.selectedLevel} kanji`, `Browse one character per line, then open its dedicated page for meanings, readings, metadata, vocabulary, audio, and writing practice.`, `<button class="btn btn-primary" data-action="start-review" data-focus="kanji">${icon('play')} Kanji drill</button>`)}
+        <div class="corpus-banner"><span>KANJIDIC2 ENRICHED</span><strong>${formatNumber(levelCount)} ${state.selectedLevel} kanji</strong><p>${formatNumber(DATA.kanji.length)} characters across N5–N1 · select a row to study the full entry</p></div>
+        <div class="toolbar"><label class="search-box">${icon('search')}<input id="kanjiSearch" value="${escapeHtml(ui.kanjiSearch)}" placeholder="Search character, meaning, reading, radical, or word…" autocomplete="off"></label><span class="result-count" id="kanjiResultCount">${formatNumber(characters.length)} results</span></div>
         <div id="kanjiCollection">${kanjiCollectionMarkup(characters)}</div>
       </div>`;
   }
@@ -728,22 +849,32 @@
 
   function renderExam() {
     const durations = { N5: 35, N4: 40, N3: 45, N2: 50, N1: 55 };
-    const results = state.mockResults.filter((result) => result.level === state.selectedLevel).slice(0, 5);
-    const best = results.length ? Math.max(...results.map((result) => result.percent)) : null;
+    const results = state.mockResults.filter((result) => result?.level === state.selectedLevel).slice(0, 5);
+    const scoredResults = results.filter((result) => Number.isFinite(result.percent));
+    const best = scoredResults.length ? Math.max(...scoredResults.map((result) => result.percent)) : null;
+    const bankMeta = MOCK_EXAMS?.meta || {};
+    const bankStats = MOCK_EXAMS?.getStats?.(state.selectedLevel) || { total: 0, language: 0, reading: 0, listening: 0 };
+    const examSources = (bankMeta.sources || []).filter((source) => ['jmdict', 'kanjidic2', 'tatoeba', 'openjlpt', 'waller', 'kumo'].includes(source.id));
+    const openJlpt = examSources.find((source) => source.id === 'openjlpt');
     return `
       <div class="page" ${levelStyle()}>
-        ${pageHeader('Test center', `${state.selectedLevel} JLPT-style mock`, 'Practice test-day pacing across language knowledge, reading, and listening. Answers stay hidden until you submit.')}
+        ${pageHeader('Open-data test center', `${state.selectedLevel} original JLPT-aligned mock`, 'Practice language knowledge, reading, and listening in a test-like flow with original Japanese-only items built from open data.')}
         <section class="exam-hero">
-          <div class="exam-hero-copy"><div class="hero-kicker">${icon('grid')} COMPACT SIMULATION</div><h2>Timed full mock</h2><p>Twenty questions in three ordered sections, with a visible timer, question navigator, flags, and a detailed result report.</p><div class="exam-facts"><span><b>20</b> questions</span><span><b>${durations[state.selectedLevel]}</b> minutes</span><span><b>3</b> sections</span><span><b>${best == null ? '—' : `${best}%`}</b> best</span></div><button class="btn btn-primary" data-action="start-exam" data-mode="full">${icon('play')} Begin timed mock</button></div>
+          <div class="exam-hero-copy"><div class="hero-kicker">${icon('grid')} ORIGINAL QUESTION BANK</div><h2>Timed full mock</h2><p>Twenty original questions in three ordered sections, with a visible timer, question navigator, flags, source provenance, and a detailed result report.</p><div class="exam-facts"><span><b>20</b> questions</span><span><b>${durations[state.selectedLevel]}</b> minutes</span><span><b>3</b> sections</span><span><b>${formatNumber(bankStats.total)}</b> curated items</span><span><b>${best == null ? '—' : `${best}%`}</b> best</span></div><button class="btn btn-primary" data-action="start-exam" data-mode="full">${icon('play')} Begin timed mock</button></div>
           <div class="exam-seal"><span>${state.selectedLevel}</span><small>模擬試験</small></div>
         </section>
         <div class="exam-dashboard">
-          <section class="card exam-structure"><div class="section-title compact"><div><h2>Test structure</h2><p>Your mock follows the same core competency groups.</p></div></div><div class="exam-sections"><div class="exam-section-row"><span class="section-number">01</span><span class="section-symbol">語</span><div><strong>Language knowledge</strong><small>Vocabulary · kanji · grammar</small></div><b>12 Q</b></div><div class="exam-section-row"><span class="section-number">02</span><span class="section-symbol">読</span><div><strong>Reading</strong><small>Information · inference · main idea</small></div><b>4 Q</b></div><div class="exam-section-row"><span class="section-number">03</span><span class="section-symbol">聴</span><div><strong>Listening</strong><small>Situation · detail · intention</small></div><b>4 Q</b></div></div></section>
-          <aside class="card mini-exam-card"><span class="mini-exam-icon">時</span><small>SHORT ON TIME?</small><h3>10-question mini mock</h3><p>A 15-minute sample across all three sections. It uses the same no-feedback exam interface.</p><button class="btn btn-ghost btn-wide" data-action="start-exam" data-mode="mini">Start mini mock</button></aside>
+          <section class="card exam-structure"><div class="section-title compact"><div><h2>Test structure</h2><p>Each attempt balances JLPT skill groups and familiar item styles.</p></div></div><div class="exam-sections"><div class="exam-section-row"><span class="section-number">01</span><span class="section-symbol">語</span><div><strong>Language knowledge</strong><small>Context · readings · kanji · grammar</small></div><b>12 Q</b></div><div class="exam-section-row"><span class="section-number">02</span><span class="section-symbol">読</span><div><strong>Reading</strong><small>Passages · detail · main idea</small></div><b>4 Q</b></div><div class="exam-section-row"><span class="section-number">03</span><span class="section-symbol">聴</span><div><strong>Listening</strong><small>Task · detail · overall meaning</small></div><b>4 Q</b></div></div></section>
+          <aside class="card mini-exam-card"><span class="mini-exam-icon">時</span><small>SHORT ON TIME?</small><h3>10-question mini mock</h3><p>A 15-minute balanced sample across all three sections. It uses the same no-feedback exam interface.</p><button class="btn btn-ghost btn-wide" data-action="start-exam" data-mode="mini">Start mini mock</button></aside>
         </div>
+        <section class="card exam-bank-source">
+          <div class="exam-bank-source-copy"><span class="source-mark">開</span><div><small>OPEN DATA FOUNDATIONS · BANK ${escapeHtml(bankMeta.version || '')}</small><h3>${escapeHtml(bankMeta.name || 'Kumo open mock bank')}</h3><p>${escapeHtml(bankMeta.notice || '')}</p></div></div>
+          <div class="exam-source-pills">${examSources.map((source) => `<a href="${escapeHtml(source.url)}" target="_blank" rel="noreferrer" title="${escapeHtml(`${source.role} · ${source.license}`)}">${escapeHtml(source.name)}</a>`).join('')}</div>
+          <div class="exam-bank-links">${openJlpt ? `<a class="btn btn-small btn-ghost" href="${escapeHtml(openJlpt.url)}" target="_blank" rel="noreferrer">OpenJLPT source</a>` : ''}<a class="btn btn-small btn-ghost" href="${escapeHtml(bankMeta.sourceAlignmentUrl || 'https://jisho.org/about')}" target="_blank" rel="noreferrer">Compare Jisho source list</a></div>
+        </section>
         <div class="section-title"><div><h2>Recent ${state.selectedLevel} attempts</h2><p>Your five latest results are stored locally.</p></div></div>
-        ${results.length ? `<div class="exam-history">${results.map((result) => `<article class="exam-history-row"><span class="history-score ${result.percent >= 70 ? 'strong' : ''}">${result.percent}%</span><div><strong>${result.mode === 'full' ? 'Timed full mock' : 'Mini mock'}</strong><small>${new Date(result.date).toLocaleDateString()} · ${result.correct}/${result.total} correct</small></div><div class="history-sections">${Object.entries(result.sections || {}).map(([name, score]) => `<span>${name.split(' ')[0]} <b>${score.correct}/${score.total}</b></span>`).join('')}</div><button class="btn btn-small btn-ghost" data-action="start-exam" data-mode="${result.mode}">Retry</button></article>`).join('')}</div>` : `<div class="empty-state"><div class="empty-icon">試</div><h3>No mock attempts yet</h3><p>Your section scores and best result will appear here after submission.</p></div>`}
-        <div class="pronunciation-tip" style="margin-top:14px"><b>Simulation note</b><span>Kumo’s compact mock recreates JLPT-style skills and test behavior, but it is not an official JLPT paper and its percentage is a practice benchmark rather than an official pass prediction.</span></div>
+        ${results.length ? `<div class="exam-history">${results.map((result) => `<article class="exam-history-row"><span class="history-score ${Number.isFinite(result.percent) && result.percent >= 70 ? 'strong' : ''}">${Number.isFinite(result.percent) ? `${formatNumber(result.percent)}%` : 'N/A'}</span><div><strong>${result.mode === 'full' ? 'Timed full mock' : 'Mini mock'}</strong><small>${escapeHtml(new Date(result.date).toLocaleDateString())} · ${formatNumber(result.correct)}/${formatNumber(result.attempted ?? (result.total - (result.skipped || 0)))} scored${result.skipped ? ` · ${formatNumber(result.skipped)} skipped` : ''}</small></div><div class="history-sections">${Object.entries(result.sections || {}).map(([name, score]) => `<span>${escapeHtml(name.split(' ')[0])} <b>${formatNumber(score.correct)}/${formatNumber(score.total - (score.skipped || 0))}</b>${score.skipped ? ` · ${formatNumber(score.skipped)} skip` : ''}</span>`).join('')}</div><button class="btn btn-small btn-ghost" data-action="start-exam" data-mode="${escapeHtml(result.mode)}">Retry</button></article>`).join('')}</div>` : `<div class="empty-state"><div class="empty-icon">試</div><h3>No mock attempts yet</h3><p>Your section scores and best result will appear here after submission.</p></div>`}
+        <div class="pronunciation-tip" style="margin-top:14px"><b>Unofficial by design</b><span>Every question is an original Kumo transformation of open-licensed data—not a copied JLPT examination or Jisho entry. Percentages are practice benchmarks, not official scaled scores or pass predictions.</span></div>
       </div>`;
   }
 
@@ -1575,17 +1706,27 @@
     return [...passageQuestions, ...sentenceQuestions];
   }
 
+  function examStimulusMarkup(question) {
+    const stimulus = String(question.stimulus || '');
+    const target = String(question.target || '');
+    if (!target) return `<span class="exam-bank-stimulus jp">${escapeHtml(stimulus)}</span>`;
+    const targetIndex = stimulus.indexOf(target);
+    if (targetIndex < 0) return `<span class="exam-bank-stimulus jp">${escapeHtml(stimulus)}</span>`;
+    return `<span class="exam-bank-stimulus jp">${escapeHtml(stimulus.slice(0, targetIndex))}<mark class="exam-target">${escapeHtml(target)}</mark>${escapeHtml(stimulus.slice(targetIndex + target.length))}</span>`;
+  }
+
   function buildExamQuestions(level, mode) {
-    const languageCount = mode === 'full' ? 12 : 6;
-    const readingCount = mode === 'full' ? 4 : 2;
-    const listeningCount = mode === 'full' ? 4 : 2;
-    const languagePool = [...vocabularyQuestions(level, null, 10), ...grammarQuestions(level, 10), ...kanjiQuestions(level, 10)];
-    const withSection = (questions, section) => questions.map((question) => ({ ...question, section }));
-    return [
-      ...withSection(extendQuestionPool(languagePool, languageCount), 'Language knowledge'),
-      ...withSection(extendQuestionPool(readingExamQuestions(level), readingCount), 'Reading'),
-      ...withSection(extendQuestionPool(listeningQuestions(level, listeningCount), listeningCount), 'Listening')
-    ];
+    if (!MOCK_EXAMS?.createExam) throw new Error('The open JLPT-aligned question bank is unavailable.');
+    return MOCK_EXAMS.createExam(level, mode).map((question) => ({
+      ...question,
+      label: question.formatLabel,
+      display: question.kind === 'choice' ? examStimulusMarkup(question) : '',
+      sentence: question.kind === 'listening' ? question.speech : question.passage || question.stimulus || '',
+      translation: '',
+      focusLabel: question.formatLabel,
+      formation: `Original ${question.formatLabel} item`,
+      teachingNote: question.explanation
+    }));
   }
 
   function formatExamTime(totalSeconds) {
@@ -1594,15 +1735,25 @@
   }
 
   function startExam(mode = 'full') {
+    const examMode = mode === 'full' ? 'full' : 'mini';
     const fullMinutes = { N5: 35, N4: 40, N3: 45, N2: 50, N1: 55 };
-    const duration = (mode === 'full' ? fullMinutes[state.selectedLevel] : 15) * 60;
+    const duration = (examMode === 'full' ? fullMinutes[state.selectedLevel] : 15) * 60;
+    let questions;
+    try {
+      questions = buildExamQuestions(state.selectedLevel, examMode);
+    } catch (error) {
+      console.error('Unable to create mock exam:', error);
+      showToast(error?.message || 'The mock question bank could not be loaded.', 'error');
+      return;
+    }
     clearInterval(examTimer);
     stopAudio();
     examSession = {
-      mode,
+      mode: examMode,
       level: state.selectedLevel,
-      questions: buildExamQuestions(state.selectedLevel, mode),
+      questions,
       answers: [],
+      skipped: [],
       flagged: [],
       index: 0,
       duration,
@@ -1635,65 +1786,109 @@
     const session = examSession;
     const question = session.questions[session.index];
     const selected = session.answers[session.index];
+    const isSkipped = session.skipped.includes(session.index);
     const answered = session.answers.filter((answer) => answer != null).length;
+    const skippedCount = session.skipped.length;
     const sectionQuestionNumber = session.questions.slice(0, session.index + 1).filter((item) => item.section === question.section).length;
     const sectionTotal = session.questions.filter((item) => item.section === question.section).length;
     let stimulus = '';
     if (question.kind === 'listening') {
-      stimulus = `<div class="exam-audio-block"><button class="audio-question" data-action="exam-audio" aria-label="Play listening item">${icon('volume')}</button><p>Play the recording, then choose the best answer.</p></div>`;
+      stimulus = `<div class="exam-audio-block"><button class="audio-question" data-action="exam-audio" aria-label="Play listening item">${icon('volume')}</button><p>音声を聞いて、最もよい答えを選んでください。</p></div>`;
     } else if (question.kind === 'reading') {
       stimulus = `<div class="exam-passage"><small>${escapeHtml(question.passageTitle)}</small><p>${escapeHtml(question.passage)}</p></div>`;
     } else {
       stimulus = `<div class="question-japanese exam-stimulus">${question.display}</div>`;
     }
-    const navigator = session.questions.map((item, index) => `<button class="exam-dot ${index === session.index ? 'current' : ''} ${session.answers[index] != null ? 'answered' : ''} ${session.flagged.includes(index) ? 'flagged' : ''}" data-action="exam-jump" data-index="${index}" title="Question ${index + 1} · ${item.section}">${index + 1}</button>`).join('');
+    const navigator = session.questions.map((item, index) => `<button class="exam-dot ${index === session.index ? 'current' : ''} ${session.answers[index] != null ? 'answered' : ''} ${session.skipped.includes(index) ? 'skipped' : ''} ${session.flagged.includes(index) ? 'flagged' : ''}" data-action="exam-jump" data-index="${index}" title="Question ${index + 1} · ${item.section}${session.skipped.includes(index) ? ' · skipped' : ''}">${index + 1}</button>`).join('');
+    const sourceLabel = question.source?.name || 'Kumo original';
+    const sourceDetails = question.source?.license || '';
 
     return `<section class="modal-card exam-modal" ${levelStyle(session.level)}>
-      <header class="exam-topbar"><button class="modal-close" data-action="close-modal" aria-label="Exit mock test">${icon('close')}</button><div class="exam-title"><strong>${session.level} ${session.mode === 'full' ? 'timed mock' : 'mini mock'}</strong><small>${answered}/${session.questions.length} answered</small></div><div class="exam-timer" id="examTimer">${formatExamTime(session.remaining)}</div><button class="btn btn-small btn-ghost" data-action="submit-exam">Submit test</button></header>
-      <div class="exam-workspace"><aside class="exam-navigator"><div class="navigator-head"><strong>Questions</strong><small>Flagged items have a dot</small></div><div class="exam-dot-grid">${navigator}</div><div class="navigator-legend"><span><i class="answered"></i>Answered</span><span><i class="flagged"></i>Flagged</span></div></aside>
-      <main class="exam-question"><div class="question-label">${escapeHtml(question.section)} · ${sectionQuestionNumber}/${sectionTotal}</div><h2>${escapeHtml(question.prompt)}</h2>${stimulus}<div class="answer-grid exam-answers">${question.choices.map((choice, index) => `<button class="answer-option ${selected === choice ? 'selected' : ''}" data-action="exam-answer" data-answer="${escapeHtml(choice)}"><span class="answer-key">${index + 1}</span>${escapeHtml(choice)}</button>`).join('')}</div></main></div>
-      <footer class="exam-footer"><button class="btn btn-ghost" data-action="exam-previous" ${session.index === 0 ? 'disabled' : ''}>← Previous</button><button class="flag-button ${session.flagged.includes(session.index) ? 'active' : ''}" data-action="exam-flag">${session.flagged.includes(session.index) ? '● Flagged' : '○ Flag for review'}</button><button class="btn btn-primary" data-action="${session.index === session.questions.length - 1 ? 'submit-exam' : 'exam-next'}">${session.index === session.questions.length - 1 ? 'Submit test' : 'Next →'}</button></footer>
+      <header class="exam-topbar"><button class="modal-close" data-action="close-modal" aria-label="Exit mock test">${icon('close')}</button><div class="exam-title"><strong>${session.level} ${session.mode === 'full' ? 'timed mock' : 'mini mock'}</strong><small>${answered}/${session.questions.length} answered${skippedCount ? ` · ${skippedCount} skipped` : ''}</small></div><div class="exam-timer" id="examTimer">${formatExamTime(session.remaining)}</div><button class="btn btn-small btn-ghost" data-action="submit-exam">Submit test</button></header>
+      <div class="exam-workspace"><aside class="exam-navigator"><div class="navigator-head"><strong>Questions</strong><small>Skipped audio is not scored</small></div><div class="exam-dot-grid">${navigator}</div><div class="navigator-legend"><span><i class="answered"></i>Answered</span><span><i class="skipped"></i>Skipped</span><span><i class="flagged"></i>Flagged</span></div></aside>
+      <main class="exam-question"><div class="question-label"><span>${escapeHtml(question.section)} · ${sectionQuestionNumber}/${sectionTotal}</span><small>${escapeHtml(question.formatLabel || '')}</small></div><h2>${escapeHtml(question.prompt)}</h2>${stimulus}<div class="answer-grid exam-answers">${question.choices.map((choice, index) => `<button class="answer-option ${selected === choice ? 'selected' : ''}" data-action="exam-answer" data-answer="${escapeHtml(choice)}"><span class="answer-key">${index + 1}</span>${escapeHtml(choice)}</button>`).join('')}</div><div class="exam-item-source" title="${escapeHtml(sourceDetails)}"><span>Original item</span>Built from ${escapeHtml(sourceLabel)}</div></main></div>
+      <footer class="exam-footer"><button class="btn btn-ghost" data-action="exam-previous" ${session.index === 0 ? 'disabled' : ''}>← Previous</button>${question.kind === 'listening' ? `<button class="btn btn-ghost exam-skip ${isSkipped ? 'active' : ''}" data-action="exam-skip-audio">${isSkipped ? '↩ Include audio' : 'Skip audio'}</button>` : ''}<button class="flag-button ${session.flagged.includes(session.index) ? 'active' : ''}" data-action="exam-flag">${session.flagged.includes(session.index) ? '● Flagged' : '○ Flag for review'}</button><button class="btn btn-primary" data-action="${session.index === session.questions.length - 1 ? 'submit-exam' : 'exam-next'}">${session.index === session.questions.length - 1 ? 'Submit test' : 'Next →'}</button></footer>
     </section>`;
+  }
+
+  function setExamAnswerState(session, answer) {
+    if (!session || session.result || answer == null) return false;
+    session.answers[session.index] = answer;
+    session.skipped = session.skipped.filter((index) => index !== session.index);
+    return true;
+  }
+
+  function toggleExamAudioSkipState(session) {
+    if (!session || session.result || session.questions[session.index]?.kind !== 'listening') return { changed: false, skipped: false };
+    const index = session.index;
+    if (session.skipped.includes(index)) {
+      session.skipped = session.skipped.filter((item) => item !== index);
+      return { changed: true, skipped: false };
+    }
+    session.answers[index] = null;
+    session.skipped.push(index);
+    if (index < session.questions.length - 1) session.index += 1;
+    return { changed: true, skipped: true };
+  }
+
+  function scoreExamSession(session) {
+    const sections = {};
+    const skippedIndexes = new Set(session.skipped);
+    let correct = 0;
+    const missed = [];
+    session.questions.forEach((question, index) => {
+      if (!sections[question.section]) sections[question.section] = { correct: 0, total: 0, skipped: 0 };
+      sections[question.section].total += 1;
+      if (skippedIndexes.has(index)) {
+        sections[question.section].skipped += 1;
+        return;
+      }
+      const isCorrect = normalizeAnswer(session.answers[index] ?? '') === normalizeAnswer(question.answer);
+      if (isCorrect) {
+        correct += 1;
+        sections[question.section].correct += 1;
+      } else {
+        missed.push({
+          prompt: question.memoryPrompt || question.prompt,
+          answer: question.answer,
+          given: session.answers[index] || 'No answer',
+          section: question.section,
+          sourceName: question.source?.name || 'Kumo original',
+          sourceRef: question.source?.recordId || '',
+          sourceUrl: question.source?.url || ''
+        });
+      }
+    });
+    const skipped = skippedIndexes.size;
+    const attempted = session.questions.length - skipped;
+    return { sections, correct, missed, attempted, skipped, percent: attempted ? Math.round((correct / attempted) * 100) : null };
   }
 
   function submitExam(automatic = false) {
     if (!examSession || examSession.submitted) return;
-    const unanswered = examSession.questions.length - examSession.answers.filter((answer) => answer != null).length;
+    const unanswered = examSession.questions.filter((_, index) => examSession.answers[index] == null && !examSession.skipped.includes(index)).length;
     if (!automatic && unanswered > 0 && !window.confirm(`${unanswered} questions are unanswered. Submit anyway?`)) return;
     examSession.submitted = true;
     clearInterval(examTimer);
-    const sectionScores = {};
-    let correct = 0;
-    const missed = [];
-    examSession.questions.forEach((question, index) => {
-      const isCorrect = normalizeAnswer(examSession.answers[index] ?? '') === normalizeAnswer(question.answer);
-      if (!sectionScores[question.section]) sectionScores[question.section] = { correct: 0, total: 0 };
-      sectionScores[question.section].total += 1;
-      if (isCorrect) {
-        correct += 1;
-        sectionScores[question.section].correct += 1;
-      } else {
-        missed.push({ prompt: question.memoryPrompt || question.prompt, answer: question.answer, given: examSession.answers[index] || 'No answer', section: question.section });
-      }
-    });
-    const percent = Math.round((correct / examSession.questions.length) * 100);
+    const score = scoreExamSession(examSession);
     const result = {
       id: `mock-${Date.now()}`,
       date: new Date().toISOString(),
       level: examSession.level,
       mode: examSession.mode,
       total: examSession.questions.length,
-      correct,
-      percent,
-      sections: sectionScores,
+      attempted: score.attempted,
+      skipped: score.skipped,
+      correct: score.correct,
+      percent: score.percent,
+      sections: score.sections,
       timeUsed: examSession.duration - examSession.remaining,
       timedOut: automatic,
-      missed
+      missed: score.missed
     };
     examSession.result = result;
     state.mockResults.unshift(result);
     state.mockResults = state.mockResults.slice(0, 25);
-    state.mistakes = [...missed.map((item) => ({ ...item, level: examSession.level, at: Date.now() })), ...state.mistakes].slice(0, 30);
     recordSession({
       seconds: result.timeUsed,
       questions: examSession.answers.filter((answer) => answer != null).length
@@ -1704,8 +1899,22 @@
 
   function renderExamResult() {
     const result = examSession.result;
-    const verdict = result.percent >= 80 ? 'Strong performance' : result.percent >= 70 ? 'Practice benchmark met' : result.percent >= 50 ? 'Foundation is forming' : 'Review and retry';
-    return `<section class="modal-card exam-modal exam-result" ${levelStyle(result.level)}><div class="result-hero"><div class="result-seal"><strong>${result.percent}%</strong><small>${result.level} MOCK</small></div><div><div class="eyebrow">TEST COMPLETE</div><h2>${verdict}</h2><p>${result.correct}/${result.total} correct · ${formatExamTime(result.timeUsed)} used${result.timedOut ? ' · time expired' : ''}</p></div></div><div class="section-score-grid">${Object.entries(result.sections).map(([name, score]) => { const percent = Math.round((score.correct / score.total) * 100); return `<article><span>${name === 'Language knowledge' ? '語' : name === 'Reading' ? '読' : '聴'}</span><div><strong>${name}</strong><small>${score.correct}/${score.total} correct</small></div><b>${percent}%</b></article>`; }).join('')}</div><div class="result-review"><div class="section-title compact"><div><h2>Answer review</h2><p>${result.missed.length ? 'Study these items before your next attempt.' : 'Perfect—every answer was correct.'}</p></div></div>${result.missed.length ? `<div class="result-mistakes">${result.missed.map((item) => `<div><span>${escapeHtml(item.section)}</span><strong>${escapeHtml(item.prompt)}</strong><p>Your answer: ${escapeHtml(item.given)} · <b>Correct: ${escapeHtml(item.answer)}</b></p></div>`).join('')}</div>` : `<div class="empty-state"><div class="empty-icon">✓</div><h3>Perfect score</h3><p>No corrections needed for this attempt.</p></div>`}</div><footer class="result-actions"><button class="btn btn-ghost" data-action="finish-exam">Back to test center</button><button class="btn btn-primary" data-action="retry-exam" data-mode="${result.mode}">${icon('review')} Try another ${result.mode === 'full' ? 'full' : 'mini'} mock</button></footer></section>`;
+    const skipped = result.skipped || 0;
+    const attempted = result.attempted ?? Math.max(0, result.total - skipped);
+    const percentText = Number.isFinite(result.percent) ? `${result.percent}%` : 'N/A';
+    const verdict = !Number.isFinite(result.percent) ? 'No scored questions' : result.percent >= 80 ? 'Strong performance' : result.percent >= 70 ? 'Practice benchmark met' : result.percent >= 50 ? 'Foundation is forming' : 'Review and retry';
+    const sectionScores = Object.entries(result.sections).map(([name, score]) => {
+      const sectionSkipped = score.skipped || 0;
+      const sectionAttempted = Math.max(0, score.total - sectionSkipped);
+      const sectionPercent = sectionAttempted ? `${Math.round((score.correct / sectionAttempted) * 100)}%` : '—';
+      return `<article><span>${name === 'Language knowledge' ? '語' : name === 'Reading' ? '読' : '聴'}</span><div><strong>${escapeHtml(name)}</strong><small>${score.correct}/${sectionAttempted} scored${sectionSkipped ? ` · ${sectionSkipped} skipped` : ''}</small></div><b>${sectionPercent}</b></article>`;
+    }).join('');
+    const reviewTitle = result.missed.length ? 'Answer review' : skipped ? 'No incorrect answers' : 'Perfect score';
+    const reviewDescription = result.missed.length ? 'Study these items before your next attempt.' : skipped ? `${skipped} audio ${skipped === 1 ? 'question was' : 'questions were'} skipped and excluded from scoring.` : 'Every scored answer was correct.';
+    const reviewBody = result.missed.length
+      ? `<div class="result-mistakes">${result.missed.map((item) => `<div><span>${escapeHtml(item.section)}</span><strong>${escapeHtml(item.prompt)}</strong><p>Your answer: ${escapeHtml(item.given)} · <b>Correct: ${escapeHtml(item.answer)}</b></p>${item.sourceName ? `<small class="result-item-source">Source: ${escapeHtml(item.sourceName)}${item.sourceRef ? ` · ${escapeHtml(item.sourceRef)}` : ''}</small>` : ''}</div>`).join('')}</div>`
+      : `<div class="empty-state"><div class="empty-icon">✓</div><h3>${reviewTitle}</h3><p>${reviewDescription}</p></div>`;
+    return `<section class="modal-card exam-modal exam-result" ${levelStyle(result.level)}><div class="result-hero"><div class="result-seal"><strong>${percentText}</strong><small>${result.level} MOCK</small></div><div><div class="eyebrow">TEST COMPLETE</div><h2>${verdict}</h2><p>${result.correct}/${attempted} scored${skipped ? ` · ${skipped} skipped` : ''} · ${formatExamTime(result.timeUsed)} used${result.timedOut ? ' · time expired' : ''}</p></div></div><div class="section-score-grid">${sectionScores}</div><div class="result-review"><div class="section-title compact"><div><h2>${reviewTitle}</h2><p>${reviewDescription}</p></div></div>${reviewBody}</div><footer class="result-actions"><button class="btn btn-ghost" data-action="finish-exam">Back to test center</button><button class="btn btn-primary" data-action="retry-exam" data-mode="${result.mode}">${icon('review')} Try another ${result.mode === 'full' ? 'full' : 'mini'} mock</button></footer></section>`;
   }
 
   function findLesson(lessonId) {
@@ -1848,7 +2057,7 @@
       return;
     }
     if (!modalReturnFocus) modalReturnFocus = document.activeElement;
-    practiceSession = { title, level, focus, lessonId, questions: built, index: 0, correct: 0, selected: null, orderedTokenIds: [], answerCorrect: null, checked: false, finished: false, finalized: false, audioPlayedIndex: -1, startedAt: Date.now() };
+    practiceSession = { title, level, focus, lessonId, questions: built, index: 0, correct: 0, skipped: 0, selected: null, orderedTokenIds: [], answerCorrect: null, checked: false, finished: false, finalized: false, audioPlayedIndex: -1, startedAt: Date.now() };
     renderPracticeModal();
   }
 
@@ -1870,10 +2079,12 @@
       || $('.modal-close', layer);
     if (defaultFocus) setTimeout(() => defaultFocus.focus(), focusTokenId ? 0 : 50);
     if (!practiceSession.finished && practiceSession.questions[practiceSession.index].kind === 'listening' && practiceSession.audioPlayedIndex !== practiceSession.index) {
-      practiceSession.audioPlayedIndex = practiceSession.index;
+      const audioSession = practiceSession;
+      const audioIndex = audioSession.index;
+      audioSession.audioPlayedIndex = audioIndex;
       setTimeout(() => {
-        if (practiceSession && !practiceSession.finished && practiceSession.audioPlayedIndex === practiceSession.index) {
-          speakText(practiceSession.questions[practiceSession.index].speech);
+        if (practiceSession === audioSession && !audioSession.finished && audioSession.index === audioIndex && audioSession.audioPlayedIndex === audioIndex) {
+          speakText(audioSession.questions[audioIndex].speech);
         }
       }, 350);
     }
@@ -1923,7 +2134,7 @@
     const explanation = session.checked ? lessonExplanationMarkup(question) : '';
     const feedback = session.checked ? `<div class="feedback ${session.answerCorrect ? 'correct' : 'wrong'}"><span class="feedback-icon">${session.answerCorrect ? '✓' : '×'}</span><div><strong>${session.answerCorrect ? 'Correct' : `Correct answer: ${escapeHtml(question.answer)}`}</strong><p>${question.sentence ? 'Review the sentence guide before continuing.' : escapeHtml(question.explanation)}</p></div></div>` : '';
     const questionHint = question.kind === 'listening'
-      ? 'Listen as many times as needed, then choose the best answer.'
+      ? 'Listen as many times as needed, or skip this audio without affecting your accuracy.'
       : question.kind === 'ordering'
         ? 'Tap a shuffled tile to add it. Tap a placed tile to return it.'
         : 'Choose the best answer. Keyboard shortcuts 1–4 and Enter work too.';
@@ -1934,7 +2145,7 @@
     return `<section class="modal-card practice-modal" role="dialog" aria-modal="true" aria-label="Japanese practice" ${levelStyle(session.level)}>
       <div class="practice-top"><button class="modal-close" data-action="close-modal" aria-label="Exit lesson">${icon('close')}</button><div class="practice-progress"><i style="--width:${progress}%"></i></div><span class="practice-count">${session.index + 1} / ${session.questions.length}</span></div>
       <div class="question-area"><div class="question-label">${escapeHtml(question.label)} · ${session.index + 1}/${session.questions.length}</div><h2>${escapeHtml(question.prompt)}</h2><p class="question-sub">${questionHint}${dictionaryHint}</p>${promptBody}${answers}${explanation}</div>
-      <footer class="practice-footer">${feedback}<button class="btn ${session.checked ? 'btn-primary' : 'btn-purple'}" data-action="${session.checked ? 'next-question' : 'check-answer'}">${session.checked ? (session.index === session.questions.length - 1 ? 'See results' : 'Continue') : 'Check answer'}</button></footer>
+      <footer class="practice-footer">${feedback}${question.kind === 'listening' && !session.checked ? `<button class="btn btn-ghost practice-skip" data-action="skip-practice-audio">Skip audio</button>` : ''}<button class="btn ${session.checked ? 'btn-primary' : 'btn-purple'}" data-action="${session.checked ? 'next-question' : 'check-answer'}">${session.checked ? (session.index === session.questions.length - 1 ? 'See results' : 'Continue') : 'Check answer'}</button></footer>
     </section>`;
   }
 
@@ -1952,8 +2163,10 @@
   function renderPracticeComplete() {
     finalizePractice();
     const session = practiceSession;
-    const percent = Math.round((session.correct / session.questions.length) * 100);
-    return `<section class="modal-card practice-modal" role="dialog" aria-modal="true" aria-label="Japanese practice" ${levelStyle(session.level)}><div class="session-complete"><div class="complete-badge">✓</div><h2>Session complete</h2><p>${escapeHtml(session.title)} · this activity has been added to your study record.</p><div class="result-stats"><div class="result-stat"><strong>${session.correct}/${session.questions.length}</strong><small>Correct</small></div><div class="result-stat"><strong>${percent}%</strong><small>Accuracy</small></div><div class="result-stat"><strong>${formatStudyTime(session.elapsedSeconds)}</strong><small>Study time</small></div></div><button class="btn btn-primary" data-action="finish-practice">Return to study</button></div></section>`;
+    const skipped = session.skipped || 0;
+    const attempted = Math.max(0, session.questions.length - skipped);
+    const percent = attempted ? Math.round((session.correct / attempted) * 100) : null;
+    return `<section class="modal-card practice-modal" role="dialog" aria-modal="true" aria-label="Japanese practice" ${levelStyle(session.level)}><div class="session-complete"><div class="complete-badge">✓</div><h2>Session complete</h2><p>${escapeHtml(session.title)} · this activity has been added to your study record.${skipped ? ` ${skipped} audio ${skipped === 1 ? 'question was' : 'questions were'} excluded from accuracy.` : ''}</p><div class="result-stats"><div class="result-stat"><strong>${session.correct}/${attempted}</strong><small>Scored</small></div><div class="result-stat"><strong>${percent == null ? 'N/A' : `${percent}%`}</strong><small>Accuracy</small></div><div class="result-stat"><strong>${skipped}</strong><small>Skipped</small></div><div class="result-stat"><strong>${formatStudyTime(session.elapsedSeconds)}</strong><small>Study time</small></div></div><button class="btn btn-primary" data-action="finish-practice">Return to study</button></div></section>`;
   }
 
   function checkPracticeAnswer() {
@@ -2000,18 +2213,40 @@
     return String(value).trim().toLocaleLowerCase().replaceAll(/[\s。、！？!?]/g, '');
   }
 
+  function advancePracticeState(session) {
+    if (!session) return false;
+    if (session.index >= session.questions.length - 1) {
+      session.finished = true;
+    } else {
+      session.index += 1;
+      session.selected = null;
+      session.orderedTokenIds = [];
+      session.answerCorrect = null;
+      session.checked = false;
+    }
+    return true;
+  }
+
+  function skipPracticeAudioState(session) {
+    if (!session || session.checked || session.questions[session.index]?.kind !== 'listening') return false;
+    session.skipped = (session.skipped || 0) + 1;
+    return advancePracticeState(session);
+  }
+
+  function advancePracticeQuestion() {
+    if (!advancePracticeState(practiceSession)) return;
+    renderPracticeModal();
+  }
+
+  function skipPracticeAudioQuestion() {
+    if (!skipPracticeAudioState(practiceSession)) return;
+    stopAudio();
+    renderPracticeModal();
+  }
+
   function nextPracticeQuestion() {
     if (!practiceSession?.checked) return;
-    if (practiceSession.index >= practiceSession.questions.length - 1) {
-      practiceSession.finished = true;
-    } else {
-      practiceSession.index += 1;
-      practiceSession.selected = null;
-      practiceSession.orderedTokenIds = [];
-      practiceSession.answerCorrect = null;
-      practiceSession.checked = false;
-    }
-    renderPracticeModal();
+    advancePracticeQuestion();
   }
 
   function closeModal({ force = false } = {}) {
@@ -2698,7 +2933,29 @@
       case 'grammar-level': ui.grammarLevel = target.dataset.level; ui.grammarTag = 'All'; ui.grammarPage = 1; ui.openGrammar = null; renderAll({ preserveScroll: true }); break;
       case 'toggle-grammar': ui.openGrammar = ui.openGrammar === target.dataset.grammar ? null : target.dataset.grammar; refreshGrammarList(); break;
       case 'grammar-page': ui.grammarPage = Number(target.dataset.page); ui.openGrammar = null; refreshGrammarList(); $('#mainContent').scrollTo({ top: 250, behavior: 'smooth' }); break;
-      case 'select-kanji': ui.selectedKanji = target.dataset.kanji; refreshKanjiList(); break;
+      case 'select-kanji':
+      case 'open-kanji': {
+        const entry = DATA.kanji.find((candidate) => candidate.id === target.dataset.kanji && candidate.level === state.selectedLevel);
+        if (!entry) break;
+        const pager = target.closest('.kanji-entry-pager');
+        const pagerDirection = pager ? (target === pager.querySelector('.btn:last-child') ? 'next' : 'previous') : '';
+        ui.selectedKanji = entry.id;
+        renderAll();
+        setTimeout(() => {
+          const pagerButton = pagerDirection === 'next'
+            ? $('.kanji-entry-pager .btn:last-child:not(:disabled)')
+            : pagerDirection === 'previous'
+              ? $('.kanji-entry-pager .btn:first-child:not(:disabled)')
+              : null;
+          (pagerButton || $('#kanjiEntryHeading'))?.focus();
+        }, 0);
+        break;
+      }
+      case 'kanji-index':
+        ui.selectedKanji = null;
+        renderAll();
+        setTimeout(() => $('#kanjiSearch')?.focus(), 0);
+        break;
       case 'kanji-page': ui.kanjiPage = Number(target.dataset.page); ui.selectedKanji = null; refreshKanjiList(); $('#mainContent').scrollTo({ top: 250, behavior: 'smooth' }); break;
       case 'write-kanji': ui.writingMode = 'kanji'; ui.writingChar = target.dataset.char; ui.strokeStep = 1; changeView('writing'); break;
       case 'immersion-tab':
@@ -2802,10 +3059,7 @@
       case 'check-writing': checkWriting(); break;
       case 'guide-level': state.selectedLevel = target.dataset.level; ui.vocabLevel = state.selectedLevel; ui.grammarLevel = state.selectedLevel; changeView('learn'); break;
       case 'exam-answer':
-        if (examSession && !examSession.result) {
-          examSession.answers[examSession.index] = target.dataset.answer;
-          renderExamModal();
-        }
+        if (setExamAnswerState(examSession, target.dataset.answer)) renderExamModal();
         break;
       case 'exam-jump': if (examSession) { examSession.index = Number(target.dataset.index); renderExamModal(); } break;
       case 'exam-previous': if (examSession && examSession.index > 0) { examSession.index -= 1; renderExamModal(); } break;
@@ -2817,6 +3071,14 @@
         }
         break;
       case 'exam-audio': if (examSession) speakText(examSession.questions[examSession.index].speech); break;
+      case 'exam-skip-audio': {
+        const change = toggleExamAudioSkipState(examSession);
+        if (change.changed) {
+          if (change.skipped) stopAudio();
+          renderExamModal();
+        }
+        break;
+      }
       case 'submit-exam': submitExam(false); break;
       case 'finish-exam': closeModal({ force: true }); renderAll(); break;
       case 'retry-exam': startExam(target.dataset.mode || 'full'); break;
@@ -2849,6 +3111,7 @@
         break;
       case 'select-answer': if (practiceSession && !practiceSession.checked) { practiceSession.selected = target.dataset.answer; renderPracticeModal(); } break;
       case 'practice-audio': speakText(practiceSession.questions[practiceSession.index].speech); break;
+      case 'skip-practice-audio': skipPracticeAudioQuestion(); break;
       case 'check-answer': checkPracticeAnswer(); break;
       case 'next-question': nextPracticeQuestion(); break;
       case 'finish-practice': closeModal({ force: true }); renderAll(); break;
@@ -2959,7 +3222,7 @@
       const question = examSession.questions[examSession.index];
       if (/^[1-4]$/.test(event.key)) {
         const answer = question.choices[Number(event.key) - 1];
-        if (answer != null) { examSession.answers[examSession.index] = answer; renderExamModal(); }
+        if (setExamAnswerState(examSession, answer)) renderExamModal();
       } else if (event.key === 'ArrowRight' && examSession.index < examSession.questions.length - 1) {
         examSession.index += 1;
         renderExamModal();

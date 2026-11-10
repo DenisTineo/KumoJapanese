@@ -202,13 +202,13 @@ function createWindow() {
     minWidth: 1040,
     minHeight: 700,
     show: false,
-    backgroundColor: '#090b12',
+    backgroundColor: '#f7f7f5',
     title: 'Kumo Japanese',
     autoHideMenuBar: true,
     titleBarStyle: 'hidden',
     titleBarOverlay: {
-      color: '#0b0e16',
-      symbolColor: '#dce2f2',
+      color: '#ffffff',
+      symbolColor: '#3c3c3c',
       height: 44
     },
     icon: path.join(__dirname, 'assets', 'icon.ico'),

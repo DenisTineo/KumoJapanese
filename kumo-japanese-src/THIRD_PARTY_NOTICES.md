@@ -26,3 +26,15 @@ Kumo Japanese contains a transformed subset of [KanjiVG](https://github.com/Kanj
 The transformed stroke dataset is stored in `src/strokes.js`. Kumo extracts ordered SVG path geometry and stroke-number coordinates for the 2,383 kanji in its OpenJLPT corpus, converts the per-character SVG files into a single JavaScript lookup, and adds runtime presentation styles for stepping and animation. The transformed stroke-path data remains available under CC BY-SA 3.0.
 
 The complete KanjiVG license is included at `licenses/KanjiVG-CC-BY-SA-3.0.txt`.
+
+## Original JLPT-aligned mock question bank
+
+`src/mock-exam-bank.js` defines compact, manually authored, unofficial exam forms validated against the open data already distributed with Kumo. Language items reference JMdict word records, KANJIDIC2 kanji records, OpenJLPT grammar records, and Jonathan Waller's community level mappings and glosses. Reading and listening use original Kumo passages and prompts. The bank does not contain questions copied from an official JLPT examination, an official JLPT workbook, or Jisho.org.
+
+Each runtime question retains a source name and record reference where one is available. The bank is distributed under CC BY-SA 4.0 because its selected vocabulary, kanji, and grammar records are validated against the OpenJLPT compilation. Tatoeba-derived sentence pairs in Kumo's broader corpus remain attributed under CC BY 2.0 FR through OpenJLPT.
+
+[Jisho.org's source overview](https://jisho.org/about) was used only to cross-check the names and roles of common Japanese-language upstream projects. Kumo independently consumes JMdict, KANJIDIC2, Tatoeba, Jonathan Waller's JLPT mappings, and KanjiVG from its own pinned OpenJLPT and KanjiVG distributions. This change does not copy Jisho's database, interface, entries, or code, and it does not add Jisho-listed sources that are not already bundled—JMnedict, RADKFILE, Jreibun, DBpedia, or WaniKani audio. In particular, Jisho's permission to use WaniKani audio is not treated as transferable permission for Kumo.
+
+The mock bank reuses audio already mapped by `src/audio-manifest.js`; no audio was imported from Jisho or WaniKani for this change. The recovered repository does not include the generator named by that manifest, so the synthesis origin of the pre-existing recordings is not asserted here.
+
+Content describing Jisho's upstream source catalog was rephrased from the linked source for compliance with licensing restrictions.

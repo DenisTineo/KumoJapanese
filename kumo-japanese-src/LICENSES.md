@@ -15,3 +15,9 @@ The comprehensive vocabulary, kanji, grammar, meanings, readings, metadata, exam
 ## KanjiVG-derived stroke-order data
 
 The ordered SVG paths and number positions in `src/strokes.js` are derived from KanjiVG, copyright Ulrich Apel and KanjiVG contributors, and are licensed under Creative Commons Attribution-ShareAlike 3.0. See `THIRD_PARTY_NOTICES.md` and `licenses/KanjiVG-CC-BY-SA-3.0.txt`.
+
+## Kumo Open JLPT-Aligned Mock Bank
+
+The curated question data in `src/mock-exam-bank.js` is original and unofficial. Its selected vocabulary, kanji, grammar, and community JLPT-level references are validated against Kumo's OpenJLPT-distributed JMdict and KANJIDIC2 data, so the bank is licensed under Creative Commons Attribution-ShareAlike 4.0 International. See `THIRD_PARTY_NOTICES.md` and `licenses/OpenJLPT-CC-BY-SA-4.0.txt`.
+
+No official JLPT examination questions or Jisho.org content are included in this bank.
