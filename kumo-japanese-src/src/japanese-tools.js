@@ -299,24 +299,56 @@
     return output;
   }
 
+  const WORD_SEGMENTER = typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function'
+    ? new Intl.Segmenter('ja', { granularity: 'word' })
+    : null;
+
+  function wordBoundaries(text) {
+    if (!WORD_SEGMENTER) return null;
+    const edges = new Set([0, text.length]);
+    for (const part of WORD_SEGMENTER.segment(text)) {
+      edges.add(part.index);
+      edges.add(part.index + part.segment.length);
+    }
+    return edges;
+  }
+
+  // Chooses dictionary words for the whole phrase at once instead of greedily taking the
+  // longest match at each position. Greedy matching let short words swallow the start of
+  // the next word (こちら[はあ]なた instead of こちらは[あなた]). Each word earns one point
+  // per character, and each edge that cuts through an Intl.Segmenter word costs one point.
+  // The segmenter is only a hint (it often splits て-forms oddly), so it breaks near-ties
+  // rather than overriding clear dictionary coverage.
   function dictionaryRanges(text, blockedWordIds, blockedForms) {
     const blocked = new Set(blockedWordIds || []);
     const blockedSurfaceForms = new Set(blockedForms || []);
-    const ranges = [];
-    let cursor = 0;
-    while (cursor < text.length) {
-      const character = symbolAt(text, cursor);
-      const bucket = buildIndexes().dictionary.get(character) || [];
-      const candidate = bucket.find((item) => {
-        if (blocked.has(item.entry.id) || blockedSurfaceForms.has(item.form) || !text.startsWith(item.form, cursor)) return false;
-        return Array.from(item.form).length > 1 || item.form === text;
-      });
-      if (candidate) {
-        ranges.push({ start: cursor, end: cursor + candidate.form.length, ...candidate });
-        cursor += candidate.form.length;
-      } else {
-        cursor = nextIndex(text, cursor);
+    const edges = wordBoundaries(text);
+    const edgePenalty = (start, end) => (edges ? (edges.has(start) ? 0 : 1) + (edges.has(end) ? 0 : 1) : 0);
+    const starts = [];
+    for (let cursor = 0; cursor < text.length; cursor = nextIndex(text, cursor)) starts.push(cursor);
+    const best = new Map([[text.length, { score: 0, count: 0, range: null, next: text.length }]]);
+    const better = (left, right) => left.score !== right.score ? left.score > right.score : left.count < right.count;
+    for (let index = starts.length - 1; index >= 0; index -= 1) {
+      const cursor = starts[index];
+      const next = nextIndex(text, cursor);
+      const skipped = best.get(next);
+      let choice = { score: skipped.score, count: skipped.count, range: null, next };
+      for (const item of buildIndexes().dictionary.get(symbolAt(text, cursor)) || []) {
+        if (blocked.has(item.entry.id) || blockedSurfaceForms.has(item.form) || !text.startsWith(item.form, cursor)) continue;
+        if (Array.from(item.form).length <= 1 && item.form !== text) continue;
+        const end = cursor + item.form.length;
+        const tail = best.get(end);
+        const option = { score: tail.score + item.form.length - edgePenalty(cursor, end), count: tail.count + 1, range: { start: cursor, end, ...item }, next: end };
+        // On a full tie the earlier word wins, matching how the phrase is read left to right.
+        if (better(option, choice) || (!choice.range && !better(choice, option))) choice = option;
       }
+      best.set(cursor, choice);
+    }
+    const ranges = [];
+    for (let cursor = 0; cursor < text.length;) {
+      const step = best.get(cursor);
+      if (step.range) ranges.push(step.range);
+      cursor = step.next;
     }
     return ranges;
   }
@@ -354,6 +386,7 @@
   }
 
   window.KUMO_JAPANESE = Object.freeze({
+    annotationRanges: parseAnnotations,
     cleanGrammarPattern,
     hasKanji,
     isValidReading,
@@ -361,6 +394,7 @@
     plainText,
     readingQuestionIsUseful,
     toHiragana,
+    wordBoundaries,
     writingGlyphs
   });
 })();

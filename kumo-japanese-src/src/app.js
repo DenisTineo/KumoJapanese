@@ -4,6 +4,7 @@
   const DATA = window.KUMO_DATA;
   const CONJUGATOR = window.KUMO_CONJUGATOR;
   const JAPANESE = window.KUMO_JAPANESE;
+  const GUIDE = window.KUMO_GUIDE;
   const MOCK_EXAMS = window.KUMO_MOCK_EXAMS;
   const desktop = window.kumoDesktop;
   const levelColors = Object.fromEntries(DATA.levelOrder.map((level) => [level, DATA.levels[level].color]));
@@ -1326,6 +1327,7 @@
       focusLabel: `${entry.word.word}（${entry.word.reading}）— ${entry.word.meanings?.[0] || entry.word.meaning}`,
       formation: (entry.word.posDescriptions || [entry.word.partOfSpeech]).slice(0, 3).join(' · '),
       teachingNote: 'Read from the grammatical structure first: identify the main predicate, then use particles to connect each noun or clause to it. Confirm unknown vocabulary only after forming an overall interpretation.',
+      guide: GUIDE?.vocabulary?.(entry.word, { sentence: entry.sentence, furigana: entry.furigana, translation: entry.translation, tip: 'Reading strategy: find the predicate at the end of the sentence first, then attach each phrase to it through its particle.' }),
       memoryPrompt: entry.sentence,
       trackingCollection: 'readingSentencesPracticed',
       trackingKey: entry.id
@@ -1402,6 +1404,7 @@
         focusLabel: `${entry.answer} — ${entry.groupLabel}`,
         formation: `Particle placed at the marked position · focus word: ${entry.focusWord}（${entry.focusReading}）`,
         teachingNote: entry.explanation,
+        guide: GUIDE?.particle?.(entry),
         memoryPrompt: entry.blank,
         trackingCollection: 'particleSentencesPracticed',
         trackingKey: entry.id
@@ -1494,7 +1497,8 @@
         translation: example?.en || '',
         focusLabel: `${word.word}（${word.reading}）— ${firstMeaning}`,
         formation: (word.posDescriptions || [word.partOfSpeech]).slice(0, 3).join(' · '),
-        teachingNote: `${roleNote} In this context, ${word.word} carries the meaning “${firstMeaning}.”`
+        teachingNote: `${roleNote} In this context, ${word.word} carries the meaning “${firstMeaning}.”`,
+        guide: GUIDE?.vocabulary?.(word, { sentence: example?.ja || '', furigana: example?.furigana || '', translation: example?.en || '' })
       };
       const questions = [{
         ...guide,
@@ -1549,31 +1553,41 @@
         translation: example.en,
         focusLabel: `${rule.pattern} — ${rule.meaning}`,
         formation: rule.form,
-        teachingNote: rule.explanation
+        teachingNote: rule.explanation,
+        guide: GUIDE?.grammar?.(rule, example, testPattern)
       };
     });
+  }
+
+  // "Core meaning" choices use the first three glosses so long KANJIDIC lists stay readable.
+  function kanjiCoreMeaning(entry) {
+    const meanings = entry.meanings?.length ? entry.meanings : String(entry.meaning || '').split(';');
+    return meanings.map((meaning) => String(meaning).trim()).filter(Boolean).slice(0, 3).join('; ');
   }
 
   function kanjiQuestions(level, itemLimit = null) {
     const allEntries = DATA.kanji.filter((entry) => entry.level === level);
     const entries = sampleItems(allEntries, itemLimit);
-    const meaningAlternatives = allEntries.map((item) => item.meaning);
+    const meaningAlternatives = allEntries.map(kanjiCoreMeaning);
     const readingAlternatives = allEntries.map((item) => item.words[0]?.[1]).filter(Boolean);
     return entries.flatMap((entry) => {
-      const exampleWord = DATA.vocabulary.find((word) => word.word === entry.words[0]?.[0] && word.examples?.length)
+      const picked = GUIDE?.kanjiExample?.(entry);
+      const fallbackWord = picked ? null : DATA.vocabulary.find((word) => word.word === entry.words[0]?.[0] && word.examples?.length)
         || DATA.vocabulary.find((word) => word.word.includes(entry.char) && word.examples?.length);
-      const example = exampleWord?.examples?.[0];
+      const example = picked?.example || fallbackWord?.examples?.[0];
+      const coreMeaning = kanjiCoreMeaning(entry);
       const guide = {
         sentence: example?.ja || '',
         furigana: example?.furigana || '',
         translation: example?.en || '',
         focusLabel: `${entry.char} — ${entry.meanings?.[0] || entry.meaning}`,
         formation: `On: ${entry.on} · Kun: ${entry.kun}`,
-        teachingNote: `${entry.words[0][0]} is read ${entry.words[0][1] || 'according to context'} and means “${entry.words[0][2] || entry.meanings?.[0]}.” The surrounding word determines which kanji reading is used.`
+        teachingNote: `${entry.words[0][0]} is read ${entry.words[0][1] || 'according to context'} and means “${entry.words[0][2] || entry.meanings?.[0]}.” The surrounding word determines which kanji reading is used.`,
+        guide: GUIDE?.kanji?.(entry, { sentence: example?.ja || '', furigana: example?.furigana || '', translation: example?.en || '', form: picked?.form || '' })
       };
       const questions = [{
         ...guide, kind: 'choice', label: 'Kanji · meaning', prompt: 'Choose the core meaning.', display: entry.char,
-        choices: choiceSet(entry.meaning, meaningAlternatives), answer: entry.meaning,
+        choices: choiceSet(coreMeaning, meaningAlternatives), answer: coreMeaning,
         explanation: `${entry.words[0][0]}（${entry.words[0][1]}）— ${entry.words[0][2]}`, speech: entry.words[0][0], memoryPrompt: entry.char
       }];
       if (entry.words[0]?.[1]) questions.push({
@@ -1608,7 +1622,14 @@
       formation: 'Natural spoken Japanese · listen for particles, time expressions, and sentence endings',
       teachingNote: sourceQuestion
         ? `The question asks: “${prompt}” The answer is “${answer}.” Locate the phrase that supplies that detail, then replay the audio while following the Japanese text.`
-        : 'Listen once for the overall situation, then replay for the predicate and the words connected to it by particles.'
+        : 'Listen once for the overall situation, then replay for the predicate and the words connected to it by particles.',
+      guide: GUIDE?.listening?.({
+        prompt,
+        answer,
+        pattern: clip.pattern ? grammarQuestionPattern(clip.pattern) : '',
+        meaning: clip.pattern ? DATA.grammar.find((rule) => rule.pattern === clip.pattern)?.meaning || '' : '',
+        hasQuestion: Boolean(sourceQuestion)
+      })
     };
   }
 
@@ -2002,6 +2023,8 @@
       focusLabel: 'Natural Japanese word order',
       formation: `Translation by ${provider || 'MyMemory'}`,
       teachingNote: 'Japanese usually places the main verb at the end. Particles show how each phrase relates to that verb.',
+      // globalThis keeps this function runnable in final-verify.cjs's bare sandbox.
+      guide: globalThis.KUMO_GUIDE?.ordering?.({ provider: provider || 'MyMemory', tokens: tokens.length }),
       memoryPrompt: source
     };
   }
@@ -2090,12 +2113,50 @@
     }
   }
 
+  // Japanese-only strings get lang="ja" so screen readers and font fallback treat them correctly.
+  function guideText(value, tag, className = '') {
+    const text = String(value ?? '');
+    const japanese = !/[A-Za-z]/.test(text) && /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(text);
+    return `<${tag}${className ? ` class="${className}"` : ''}${japanese ? ' lang="ja"' : ''}>${escapeHtml(text)}</${tag}>`;
+  }
+
+  // Questions without a generated guide (conjugation, kana, exams) keep their original content.
+  function legacyGuide(question) {
+    const showCards = Boolean(question.sentence || question.formation);
+    return {
+      heading: question.focusLabel || question.answer,
+      focus: showCards ? { label: 'FOCUS', title: question.focusLabel || question.answer } : null,
+      role: showCards ? { label: question.sentence ? 'FORM / ROLE' : 'FORM / RULE', title: question.formation || 'Read in context' } : null,
+      note: { paragraphs: [question.teachingNote || question.explanation] }
+    };
+  }
+
+  function guideCardMarkup(card, modifier) {
+    if (!card?.title && !card?.detail) return '';
+    return `<div class="${modifier}"><small>${escapeHtml(card.label || '')}</small>${card.title ? guideText(card.title, 'strong') : ''}${card.detail ? guideText(card.detail, 'p') : ''}</div>`;
+  }
+
+  function guideNoteMarkup(note = {}) {
+    const paragraphs = (note.paragraphs || []).filter(Boolean).map((text) => guideText(text, 'p')).join('');
+    const chips = (note.chips || []).length ? `<div class="guide-chips">${note.chips.map((chip) => guideText(chip, 'span')).join('')}</div>` : '';
+    const points = (note.points || []).map((point) => `<li>${point.jp ? `<b lang="ja">${escapeHtml(point.jp)}</b>` : ''}${point.reading ? `<span class="guide-reading" lang="ja">${escapeHtml(point.reading)}</span>` : ''}${point.text ? guideText(point.text, 'span', 'guide-point-text') : ''}${point.tag ? guideText(point.tag, 'em') : ''}</li>`).join('');
+    const pointList = points ? `${note.pointsLabel ? `<h4>${escapeHtml(note.pointsLabel)}</h4>` : ''}<ul class="guide-points">${points}</ul>` : '';
+    const tip = note.tip ? guideText(note.tip, 'p', 'guide-tip') : '';
+    return `<div class="teaching-note">${note.label ? `<small>${escapeHtml(note.label)}</small>` : ''}${paragraphs}${chips}${pointList}${tip}</div>`;
+  }
+
+  function guideBodyMarkup(guide) {
+    const cards = guideCardMarkup(guide.focus, 'guide-focus') + guideCardMarkup(guide.role, 'guide-role');
+    return `${cards ? `<div class="explanation-grid">${cards}</div>` : ''}${guideNoteMarkup(guide.note)}`;
+  }
+
   function lessonExplanationMarkup(question) {
+    const guide = question.guide || legacyGuide(question);
     if (!question.sentence) {
-      return `<section class="lesson-explanation compact"><div class="explanation-title">${icon('book')}<div><small>ANSWER EXPLANATION</small><h3>${escapeHtml(question.focusLabel || question.answer)}</h3></div></div>${question.formation ? `<div class="explanation-grid"><div><small>FOCUS</small><strong>${escapeHtml(question.focusLabel || question.answer)}</strong></div><div><small>FORM / RULE</small><strong>${escapeHtml(question.formation)}</strong></div></div>` : ''}<p class="teaching-note">${escapeHtml(question.teachingNote || question.explanation)}</p></section>`;
+      return `<section class="lesson-explanation compact"><div class="explanation-title">${icon('book')}<div><small>ANSWER EXPLANATION</small>${guideText(guide.heading || guide.focus?.title || question.focusLabel || question.answer, 'h3')}</div></div>${guideBodyMarkup(guide)}</section>`;
     }
     const sentence = japanesePhraseHtml(question.sentence, question.furigana);
-    return `<section class="lesson-explanation"><div class="explanation-title">${icon('book')}<div><small>SENTENCE GUIDE</small><h3>Understand the sentence, not only the answer</h3></div></div><div class="explained-sentence"><div><p class="jp">${sentence}</p><span>${escapeHtml(question.translation || 'Translation not available.')}</span></div>${window.KUMO_AUDIO?.[question.sentence] ? `<button class="word-action" data-action="speak" data-speech="${escapeHtml(question.sentence)}" title="Hear sentence">${icon('volume')}</button>` : ''}</div><div class="explanation-grid"><div><small>FOCUS</small><strong>${escapeHtml(question.focusLabel || question.answer)}</strong></div><div><small>FORM / ROLE</small><strong>${escapeHtml(question.formation || 'Read in context')}</strong></div></div><p class="teaching-note">${escapeHtml(question.teachingNote || question.explanation)}</p></section>`;
+    return `<section class="lesson-explanation"><div class="explanation-title">${icon('book')}<div><small>SENTENCE GUIDE</small><h3>Understand the sentence, not only the answer</h3></div></div><div class="explained-sentence"><div><p class="jp" lang="ja">${sentence}</p><span>${escapeHtml(question.translation || 'Translation not available.')}</span></div>${window.KUMO_AUDIO?.[question.sentence] ? `<button class="word-action" data-action="speak" data-speech="${escapeHtml(question.sentence)}" title="Hear sentence">${icon('volume')}</button>` : ''}</div>${guideBodyMarkup(guide)}</section>`;
   }
 
   function renderPracticeQuestion() {

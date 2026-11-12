@@ -1391,6 +1391,23 @@ rt { color: var(--purple-soft); font-size: .54em; font-weight: 650; }
 .explanation-grid strong { color: #dce1eb; font: 600 11px/1.5 var(--font-jp); }
 .teaching-note { margin: 10px 0 0; padding: 12px 14px; color: #b2bbcc; background: rgba(155,124,255,.055); border-left: 3px solid var(--purple); border-radius: 4px 9px 9px 4px; font-size: 12px; line-height: 1.65; }
 .lesson-explanation.compact .teaching-note { margin-top: 0; }
+.lesson-explanation.compact .explanation-grid { margin: 0 0 9px; }
+
+/* Structured sentence guide: card details, reading chips, word list, and tip */
+.explanation-grid p { margin: 5px 0 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+.teaching-note > small { display: block; margin-bottom: 6px; color: var(--muted-2); font-size: 8px; font-weight: 850; letter-spacing: .08em; }
+.teaching-note > p { margin: 0; }
+.teaching-note > p + p { margin-top: 7px; }
+.teaching-note h4 { margin: 12px 0 6px; color: var(--muted-2); font-size: 10px; font-weight: 800; letter-spacing: .02em; }
+.guide-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.guide-chips span { padding: 3px 9px; color: var(--text); background: rgba(255,255,255,.04); border: 1px solid var(--line-soft); border-radius: 999px; font: 600 11px/1.6 var(--font-jp); }
+.guide-points { display: grid; gap: 5px; margin: 0; padding: 0; list-style: none; }
+.guide-points li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 7px 10px; background: rgba(255,255,255,.03); border: 1px solid var(--line-soft); border-radius: 9px; }
+.guide-points b { color: var(--text); font: 700 14px/1.5 var(--font-jp); }
+.guide-reading { color: var(--muted); font: 500 12px/1.5 var(--font-jp); }
+.guide-point-text { color: var(--text); }
+.guide-points em { margin-left: auto; color: var(--muted-2); font-size: 11px; font-style: normal; }
+.guide-tip { margin-top: 10px !important; padding-top: 9px; border-top: 1px dashed var(--line-soft); color: var(--muted); }
 
 @media (max-width: 1120px) {
   .writing-layout { grid-template-columns: minmax(0, 1fr) 300px; }
@@ -1641,6 +1658,13 @@ rt { color: var(--purple-soft); font-size: .54em; font-weight: 650; }
   .explanation-grid small { font-size: 10px; }
   .explanation-grid strong { font-size: 13px; }
   .teaching-note { font-size: 14px; line-height: 1.7; }
+  .explanation-grid p { font-size: 13px; }
+  .teaching-note > small { font-size: 10px; }
+  .teaching-note h4 { font-size: 12px; }
+  .guide-chips span { font-size: 13px; }
+  .guide-points b { font-size: 16px; }
+  .guide-reading { font-size: 13px; }
+  .guide-points em { font-size: 12px; }
 }
 
 
@@ -2679,6 +2703,16 @@ rt { color: var(--brand-ink); }
 .explained-sentence .jp,
 .explanation-grid strong { color: var(--text); }
 .teaching-note { color: #4f5b52; background: var(--brand-soft); border-left-color: var(--brand); }
+.explanation-grid p { color: #5f6a62; }
+.teaching-note > small,
+.teaching-note h4 { color: var(--brand-ink); }
+.guide-chips span { color: var(--text); background: #fff; border: 1px solid #cfe9b8; }
+.guide-points li { background: rgba(255,255,255,.75); border: 1px solid #d9eccb; }
+.guide-points b,
+.guide-point-text { color: var(--text); }
+.guide-reading { color: #5f6a62; }
+.guide-points em { color: #557043; }
+.guide-tip { color: #5f6a62; border-top-color: #cfe4c0; }
 .reading-sample-strip article,
 .speaking-guide-grid > div { background: #fff; border: 2px solid var(--line); box-shadow: 0 2px 0 #e7e7e4; }
 .reading-sample-strip p,

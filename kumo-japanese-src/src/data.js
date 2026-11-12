@@ -426,15 +426,63 @@
     { icon: '🍱', title: 'Counters categorize', tag: 'Language', body: 'Objects are counted according to shape or category: 本 for long items, 枚 for flat items, 人 for people, and many more.' }
   ];
 
+  // KANJIDIC2 and JMdict glosses use plain-text conventions that should never reach the UI:
+  // powers of ten ("10**16", "10^-2"), the "(kokuji)" origin tag, and radical-name glosses
+  // such as "one radical (no.1)". They are normalized once here so every view shows clean text.
+  const SUPERSCRIPT = Object.freeze({ '-': '⁻', 0: '⁰', 1: '¹', 2: '²', 3: '³', 4: '⁴', 5: '⁵', 6: '⁶', 7: '⁷', 8: '⁸', 9: '⁹' });
+
+  function displayGloss(value) {
+    return String(value ?? '')
+      .replace(/\b10\s*(?:\*\*|\^)\s*(-?\d+)/g, (_, exponent) => `10${Array.from(exponent, (digit) => SUPERSCRIPT[digit] || digit).join('')}`)
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+  }
+
+  function sameList(left, right) {
+    return Array.isArray(right) && left.length === right.length && left.every((item, index) => item === right[index]);
+  }
+
+  function normalizeKanjiEntry(entry) {
+    const source = entry.meanings?.length ? entry.meanings : String(entry.meaning || '').split(';');
+    const meanings = [];
+    let kokuji = false;
+    let radicalName = '';
+    for (const raw of source) {
+      const gloss = displayGloss(raw);
+      if (!gloss) continue;
+      if (/^\(?kokuji\)?$/i.test(gloss)) {
+        kokuji = true;
+        continue;
+      }
+      const radical = gloss.match(/^(.+?)\s+radical\s*\(no\.?\s*\d+\)$/i);
+      if (radical) {
+        radicalName = radical[1];
+        continue;
+      }
+      if (!meanings.includes(gloss)) meanings.push(gloss);
+    }
+    if (!meanings.length && radicalName) meanings.push(`${radicalName} (radical)`);
+    const meaning = meanings.join('; ');
+    if (!kokuji && !radicalName && meaning === entry.meaning && sameList(meanings, entry.meanings)) return entry;
+    return { ...entry, meaning, meanings, ...(kokuji ? { kokuji } : {}), ...(radicalName ? { radicalName } : {}) };
+  }
+
+  function normalizeVocabularyEntry(entry) {
+    const meaning = displayGloss(entry.meaning);
+    const meanings = (entry.meanings || []).map(displayGloss);
+    if (meaning === entry.meaning && sameList(meanings, entry.meanings || [])) return entry;
+    return { ...entry, meaning, meanings };
+  }
+
   const corpus = window.KUMO_CORPUS;
   window.KUMO_DATA = Object.freeze({
     levels,
     levelOrder: ['N5', 'N4', 'N3', 'N2', 'N1'],
     kana,
     kanaCombos,
-    vocabulary: corpus?.vocabulary || vocabulary,
+    vocabulary: (corpus?.vocabulary || vocabulary).map(normalizeVocabularyEntry),
     grammar: corpus?.grammar || grammar,
-    kanji: corpus?.kanji || kanji,
+    kanji: (corpus?.kanji || kanji).map(normalizeKanjiEntry),
     corpusMeta: corpus?.meta || null,
     posLabels: corpus?.posLabels || {},
     legacyAliases: corpus?.aliases || { vocabulary: {} },
